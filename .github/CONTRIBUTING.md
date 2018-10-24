@@ -50,4 +50,4 @@ Which licenses are compatible with Apache 2 are defined in [this doc](http://www
 
 Each project must also create and maintain a list of all dependencies and their licenses, including all their transitive dependencies. This can be done either in the documentation or in the build file next to each dependency.
 
-You must add the dependency and its licence in https://github.com/Jyllands-Posten/WSClientCircuitBreaker/blob/master/licences.md
+You must add the dependency and its licence in https://github.com/Jyllands-Posten/WSClientCircuitBreaker/blob/master/licenses.md
