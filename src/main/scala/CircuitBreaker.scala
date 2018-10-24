@@ -1,11 +1,13 @@
 package repositories
-import models.PrometheusValues
 import scala.concurrent.duration.FiniteDuration
-import io.prometheus.client.Gauge
-import play.api.libs.ws._
-import play.Logger
 import scala.concurrent.Future
-import javax.inject._
+import play.api.libs.ws._
+
+trait Gauge{
+def set(value:Double)
+}
+
+case class CircuitBreakerGauges(successfulCount: Gauge, failedCount: Gauge)
 
 case class CircuitBreakerOpenException(private val message: String = "", ex: Exception = null)
     extends Exception(message, ex)
@@ -14,8 +16,7 @@ case class CircuitBreakerOpenException(private val message: String = "", ex: Exc
 trait WSCircuitBreaker extends WSRequestFilter
 
 
-@Singleton
-class WSCircuitBreakerImpl @Inject()(circuitBreaker: CircuitBreaker) extends WSRequestFilter with WSCircuitBreaker {
+class WSCircuitBreakerImpl (circuitBreaker: CircuitBreaker) extends WSRequestFilter with WSCircuitBreaker {
   def apply(executor: WSRequestExecutor): WSRequestExecutor = {
     WSRequestExecutor { request =>
       Monitor(() => executor(request))
@@ -29,7 +30,7 @@ class WSCircuitBreakerImpl @Inject()(circuitBreaker: CircuitBreaker) extends WSR
       executeRequest().map{response =>
         response.status match {
           case internalServerError if 500 until 599 contains internalServerError =>
-              Logger.error(s"Circuit breaker failure Status code: ${response.status}, StatusText: ${response.statusText}, ResponseBody: ${response.body}")
+              println(s"Circuit breaker failure Status code: ${response.status}, StatusText: ${response.statusText}, ResponseBody: ${response.body}")
             circuitBreaker.onFailure
             throw new CircuitBreakerOpenException(s"Circuit breaker failure Status code: ${response.status}, StatusText: ${response.statusText}, ResponseBody: ${response.body}")
           case _ =>
@@ -39,7 +40,7 @@ class WSCircuitBreakerImpl @Inject()(circuitBreaker: CircuitBreaker) extends WSR
       }.recover {
         case e: Exception =>
           circuitBreaker.onFailure
-          Logger.error("WS circuit breaker failure", e)
+          println("WS circuit breaker failure", e)
           throw new CircuitBreakerOpenException("Unhandled exception from circuit breaker", e)
       }
     }
@@ -74,15 +75,12 @@ trait CircuitBreaker {
 }
 // ok so this is completely a java thing stateful and all
 
-@Singleton
-class CircuitBreakerImpl @Inject()(config: CircuitBreakerConfig, prometheus: PrometheusValues) extends CircuitBreaker{
+class CircuitBreakerImpl (config: CircuitBreakerConfig, gauges: CircuitBreakerGauges) extends CircuitBreaker{
   val name: String = config.name
   val retryDelay: FiniteDuration = config.retryDelay
   val failThreshold:Int = config.failThreshold
   val successThreshold:Int = config.successThreshold
   
-  val successfulGauge: Gauge = prometheus.capiCircuitBreakerSuccesses()
-  val failedGauge: Gauge= prometheus.capiCircuitBreakerFailures()
   
   var state: CircuitBreakerState.CircuitBreakerState = CircuitBreakerState.Closed
   var retryAt: Long = 0
@@ -90,8 +88,8 @@ class CircuitBreakerImpl @Inject()(config: CircuitBreakerConfig, prometheus: Pro
   var failedCount:Double = 0
 
   def reportToPrometheus(){
-    successfulGauge.set(successfulCount)
-    failedGauge.set(failedCount)
+    gauges.successfulCount.set(successfulCount)
+    gauges.failedCount.set(failedCount)
   }
 
 
@@ -105,7 +103,7 @@ class CircuitBreakerImpl @Inject()(config: CircuitBreakerConfig, prometheus: Pro
   }
 
   def onFailure(){
-    Logger.error("circuit breaker failure")
+    println("circuit breaker failure")
     failedCount = failedCount + 1
     successfulCount = 0
 
@@ -133,7 +131,7 @@ class CircuitBreakerImpl @Inject()(config: CircuitBreakerConfig, prometheus: Pro
       return true
     }
 
-    Logger.error(s"circuit breaker is not allowing execution since circuit is open name: ${name}")
+    println(s"circuit breaker is not allowing execution since circuit is open name: ${name}")
     return false
   }
 }
