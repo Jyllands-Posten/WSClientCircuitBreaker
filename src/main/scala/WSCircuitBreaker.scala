@@ -8,19 +8,20 @@ trait WSCircuitBreaker extends WSRequestFilter
 class WSCircuitBreakerImpl (circuitBreaker: CircuitBreaker) extends WSRequestFilter with WSCircuitBreaker {
   def apply(executor: WSRequestExecutor): WSRequestExecutor = {
     WSRequestExecutor { request =>
-      monitor(() => executor(request))
+      Monitor(() => executor(request))
     }
   }
 
-  def monitor( executeRequest: () => Future[StandaloneWSResponse]):Future[StandaloneWSResponse] = {
+  def Monitor( executeRequest: () => Future[StandaloneWSResponse]):Future[StandaloneWSResponse] = {
 
     import scala.concurrent.ExecutionContext.Implicits.global
     if(circuitBreaker.allowsExecution){
       executeRequest().map{response =>
         response.status match {
           case internalServerError if 500 until 599 contains internalServerError =>
+              println(s"Circuit breaker failure Status code: ${response.status}, StatusText: ${response.statusText}, ResponseBody: ${response.body}")
             circuitBreaker.onFailure
-            throw CircuitBreakerOpenException(s"Circuit breaker failure Status code: ${response.status}, StatusText: ${response.statusText}, ResponseBody: ${response.body}")
+            throw new CircuitBreakerOpenException(s"Circuit breaker failure Status code: ${response.status}, StatusText: ${response.statusText}, ResponseBody: ${response.body}")
           case _ =>
             circuitBreaker.onSuccess
             response
@@ -28,11 +29,12 @@ class WSCircuitBreakerImpl (circuitBreaker: CircuitBreaker) extends WSRequestFil
       }.recover {
         case e: Exception =>
           circuitBreaker.onFailure
-          throw CircuitBreakerOpenException("Unhandled exception from circuit breaker", e)
+          println("WS circuit breaker failure", e)
+          throw new CircuitBreakerOpenException("Unhandled exception from circuit breaker", e)
       }
     }
     else{
-      throw CircuitBreakerOpenException(s"Circuit breaker is open ${circuitBreaker.name}")
+      throw new CircuitBreakerOpenException(s"the circuit breaker is open ${circuitBreaker.name}")
     }
   }
 }
